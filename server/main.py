@@ -1,9 +1,22 @@
 from fastapi import FastAPI,HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import date
 from database import connect_to_db
     
 app = FastAPI()
+
+origins=["*"]
+
+# Add the CORS middleware to the app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.on_event("startup")
 async def startup():
@@ -264,13 +277,6 @@ async def assign_employee_department(employee_id: int, department_id: int):
         assigned_employee_department = await connection.fetchrow(assignment_query, *assignment_values)
         return assigned_employee_department
 
-
-
-
-    
-
-"""-----------------------EmployeePromotion---------------------------------"""
-
 @app.put("/employees/{employee_id}/promote")
 async def promote_employee(employee_id: int):
     async with app.state.connection_pool.acquire() as connection:
@@ -300,8 +306,6 @@ async def promote_employee(employee_id: int):
         else:
             raise HTTPException(status_code=404, detail="Employee not found")
 
-
-    
 
 
 @app.get("/")
