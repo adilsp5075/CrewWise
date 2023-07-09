@@ -161,7 +161,12 @@ async def create_department(department: Department):
 @app.get("/departments/{department_id}")
 async def get_department(department_id: int):
     async with app.state.connection_pool.acquire() as connection:
-        query = "SELECT * FROM Department WHERE department_id = $1"
+        query = """
+            SELECT d.department_id, d.name, d.location, e.name AS manager_name, e.email AS manager_email, e.contact_number AS manager_contact_number
+            FROM Department d
+            INNER JOIN Employee e ON d.manager_id = e.employee_id
+            WHERE d.department_id = $1
+        """
         department = await connection.fetchrow(query, department_id)
         if department:
             return department
@@ -172,7 +177,11 @@ async def get_department(department_id: int):
 @app.get("/departments")
 async def get_all_departments():
     async with app.state.connection_pool.acquire() as connection:
-        query = "SELECT * FROM Department"
+        query = """
+            SELECT d.department_id, d.name, d.location, e.name AS manager_name, e.email AS manager_email, e.contact_number AS manager_contact_number
+            FROM Department d
+            INNER JOIN Employee e ON d.manager_id = e.employee_id
+        """
         departments = await connection.fetch(query)
         return departments
 
@@ -186,13 +195,22 @@ async def update_department(department_id: int, department: Department):
         if not existing_department:
             raise HTTPException(status_code=404, detail="Department not found")
 
-        # Get the current manager ID
-        current_manager_id = existing_department["manager_id"]
+        # Get the current manager details
+        current_manager_query = """
+            SELECT e.name AS manager_name, e.email AS manager_email, e.contact_number AS manager_contact_number
+            FROM Employee e
+            WHERE e.employee_id = $1
+        """
+        current_manager = await connection.fetchrow(current_manager_query, existing_department["manager_id"])
 
         # If the manager ID is being updated
-        if department.manager_id != current_manager_id:
+        if department.manager_id != existing_department["manager_id"]:
             # Check if the new manager exists
-            new_manager_query = "SELECT * FROM Employee WHERE employee_id = $1"
+            new_manager_query = """
+                SELECT e.name AS manager_name, e.email AS manager_email, e.contact_number AS manager_contact_number
+                FROM Employee e
+                WHERE e.employee_id = $1
+            """
             new_manager = await connection.fetchrow(new_manager_query, department.manager_id)
             if not new_manager:
                 raise HTTPException(status_code=400, detail="Invalid manager. Manager not found.")
@@ -216,7 +234,15 @@ async def update_department(department_id: int, department: Department):
         )
         result = await connection.execute(query, *values)
         if result == "UPDATE 1":
-            return {"message": "Department updated successfully"}
+            # Fetch the updated department with the new manager details
+            updated_department_query = """
+                SELECT d.department_id, d.name, d.location, e.name AS manager_name, e.email AS manager_email, e.contact_number AS manager_contact_number
+                FROM Department d
+                INNER JOIN Employee e ON d.manager_id = e.employee_id
+                WHERE d.department_id = $1
+            """
+            updated_department = await connection.fetchrow(updated_department_query, department_id)
+            return updated_department
         else:
             raise HTTPException(status_code=404, detail="Department not found")
 
@@ -243,6 +269,28 @@ async def get_all_departments():
         departments = await connection.fetch(query)
         return departments
     
+
+# Get names of eligible managers
+@app.get("/managers")
+async def get_eligible_managers():
+    async with app.state.connection_pool.acquire() as connection:
+        query = """
+            SELECT name, date_of_joining
+            FROM Employee
+        """
+        employees = await connection.fetch(query)
+
+        eligible_managers = []
+        today = date.today()
+
+        for employee in employees:
+            date_of_joining = employee["date_of_joining"]
+            years_of_experience = (today - date_of_joining).days // 365
+
+            if years_of_experience >= 5:
+                eligible_managers.append(employee["name"])
+
+        return eligible_managers
 
 '''-----------------------EmployeeDepartmentAssignment---------------------------------'''
 
